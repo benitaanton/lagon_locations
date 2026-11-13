@@ -1,0 +1,990 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lagon Locations — tableau de bord</title>
+<style>
+  /* Palette "lagon" : turquoise et corail sur fond sable.
+     Les deux teintes de données ont été validées pour la vision des couleurs
+     (écart deutan 9.2 en clair, 9.4 en sombre). Le turquoise reste un peu
+     clair sur le sable, d'où les valeurs affichées en clair à côté des
+     barres : la couleur ne porte jamais l'information toute seule. */
+  :root {
+    color-scheme: light;
+    --plan: #fbf6ec; --surface: #ffffff;
+    --ink: #17221f; --ink-2: #4e5d59; --muted: #8b958f;
+    --trait: #ece3d4; --bord: rgba(23,34,31,0.10);
+    /* teintes des cartes : chacune porte un sens, jamais une décoration */
+    --fond-lagon: #e8f7f1; --bord-lagon: #9fd9c3;
+    --fond-sable: #fdf2e0; --bord-sable: #f0cfa0;
+    --fond-corail: #fdeceb; --bord-corail: #f2b7b4;
+    --fond-soleil: #fdf6dd; --bord-soleil: #eed694;
+    --du: #1baf7a; --encaisse: #eb6834;
+    --accent: #0b7f8c;
+    --voile-soleil: rgba(255,214,140,0.22);
+    --voile-lagon: rgba(69,194,205,0.26);
+    --voile-ecume: rgba(255,255,255,0.85);
+    --bon: #0ca30c; --attention: #e09200; --grave: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plan: #121a18; --surface: #1b2423;
+      --ink: #f1ece2; --ink-2: #c2cbc6; --muted: #8a9490;
+      --trait: #2a3533; --bord: rgba(255,255,255,0.12);
+      --fond-lagon: #16302a; --bord-lagon: #2b6453;
+      --fond-sable: #2d2619; --bord-sable: #6b5733;
+      --fond-corail: #33201f; --bord-corail: #7a3d3a;
+      --fond-soleil: #2f2a16; --bord-soleil: #6e5f2b;
+      --du: #199e70; --encaisse: #d95926;
+      --accent: #45c2cd;
+      --voile-soleil: rgba(217,89,38,0.16);
+      --voile-lagon: rgba(25,158,112,0.16);
+      --attention: #fab219;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* Le fond rappelle le lagon : sable en haut, eau turquoise en bas.
+     Les dégradés restent très pâles pour que le texte garde son contraste. */
+  /* Fond uni crème. La couleur ne sert plus de décor : elle est réservée aux
+     cartes, où elle porte un sens (ce qui est rentré, ce qui manque). */
+  body { margin: 0; padding: 24px 16px 64px; color: var(--ink); background: var(--plan);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .page { max-width: 1060px; margin: 0 auto; }
+  .bandeau { background: linear-gradient(100deg, #0b7f8c 0%, #1baf7a 52%, #eb6834 100%);
+             border-radius: 12px; padding: 20px 22px; color: #fffdf7; margin-bottom: 4px; }
+  .bandeau h1 { color: #fffdf7; }
+  .bandeau .sous { color: rgba(255,253,247,0.88); }
+  h1 { font-size: 21px; margin: 0 0 3px; font-weight: 650; }
+  .sous { color: var(--ink-2); font-size: 14px; }
+  .intro { color: var(--ink-2); font-size: 13.5px; margin: 0 0 14px; }
+
+  .barre-haut { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 20px 0 16px; }
+  .champ { display: flex; align-items: center; gap: 7px; }
+  label { font-size: 13.5px; color: var(--ink-2); }
+  select { font: inherit; font-size: 14px; padding: 6px 9px; border-radius: 8px;
+           border: 1px solid var(--bord); background: var(--surface); color: var(--ink); }
+  .bouton { font: inherit; font-size: 13.5px; padding: 7px 13px; border-radius: 8px; cursor: pointer;
+            border: 1px solid var(--accent); background: var(--accent); color: #fffdf7; font-weight: 600; }
+  .bouton:hover { filter: brightness(1.08); }
+  .bouton.secondaire { background: var(--surface); color: var(--accent); }
+  .portee { font-size: 13px; color: var(--muted); }
+
+  .onglets { display: flex; gap: 4px; border-bottom: 1px solid var(--trait);
+             margin-bottom: 20px; overflow-x: auto; }
+  .onglet { font: inherit; font-size: 14px; background: none; border: 0; cursor: pointer;
+            color: var(--ink-2); padding: 10px 14px; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .onglet:hover { color: var(--ink); }
+  .onglet[aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--du); }
+  .compteur { display: inline-block; min-width: 19px; padding: 0 5px; margin-left: 6px;
+              border-radius: 99px; background: var(--grave); color: #fff;
+              font-size: 11.5px; line-height: 18px; text-align: center; font-weight: 650; }
+  .compteur.calme { background: var(--muted); }
+  .panneau[hidden] { display: none; }
+
+  /* sous-onglets : volontairement plus discrets que les onglets principaux,
+     pour qu'on voie d'un coup d'oeil lequel des deux niveaux on manipule */
+  .sous-onglets { display: inline-flex; gap: 3px; padding: 3px; margin-bottom: 18px;
+                  background: var(--trait); border-radius: 9px; }
+  .sous-onglet { font: inherit; font-size: 13.5px; background: none; border: 0; cursor: pointer;
+                 color: var(--ink-2); padding: 6px 14px; border-radius: 7px; white-space: nowrap; }
+  .sous-onglet:hover { color: var(--ink); }
+  .sous-onglet[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; }
+  .sous-panneau[hidden] { display: none; }
+
+  .carte { background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; padding: 18px; }
+  h2 { font-size: 15px; font-weight: 650; margin: 0 0 4px; }
+  .bloc { margin-bottom: 28px; }
+
+  .tuiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .tuile { border-width: 1px; border-style: solid; }
+  .tuile.lagon { background: var(--fond-lagon); border-color: var(--bord-lagon); }
+  .tuile.sable { background: var(--fond-sable); border-color: var(--bord-sable); }
+  .tuile.corail { background: var(--fond-corail); border-color: var(--bord-corail); }
+  .tuile.soleil { background: var(--fond-soleil); border-color: var(--bord-soleil); }
+  .tuile .etiquette { color: var(--ink-2); font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .tuile .valeur { font-size: 26px; font-weight: 640; margin-top: 6px; }
+  .tuile .note { color: var(--ink-2); font-size: 12.5px; margin-top: 4px; }
+  .negatif { color: var(--grave); } .positif { color: var(--bon); }
+
+  .barre-ligne { display: grid; grid-template-columns: 150px 1fr 100px; gap: 12px;
+                 align-items: center; margin-bottom: 12px; }
+  .nom { font-size: 13.5px; color: var(--ink-2); }
+  .piste { display: grid; gap: 4px; }
+  .rang { display: flex; align-items: center; gap: 8px; }
+  .valeur-barre { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
+  .barre { height: 13px; border-radius: 0 4px 4px 0; }
+  .barre.du { background: var(--du); } .barre.encaisse { background: var(--encaisse); }
+  .chiffre { text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .legende { display: flex; gap: 16px; font-size: 13px; color: var(--ink-2); margin-bottom: 14px; }
+  .pastille { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12.5px;
+       text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--trait); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--trait); }
+  td.nombre { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .etat { font-size: 12.5px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--bord); white-space: nowrap; }
+
+  /* une reservation porteuse d'anomalie se repere au liseré ET a la puce :
+     jamais a la couleur seule */
+  tr.ligne { cursor: default; }
+  tr.ligne td:first-child { border-left: 3px solid transparent; }
+  tr.bloquant td:first-child { border-left-color: var(--grave); }
+  tr.verifier td:first-child { border-left-color: var(--attention); }
+  tr.information td:first-child { border-left-color: var(--muted); }
+  tr.ouvrable { cursor: pointer; }
+  tr.ouvrable:hover td { background: rgba(127,127,127,.06); }
+  .puce { display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+          font-weight: 650; margin-left: 6px; }
+  .puce.bloquant { color: var(--grave); } .puce.verifier { color: var(--attention); }
+  .puce.information { color: var(--muted); }
+  .detail-ligne td { background: rgba(127,127,127,.05); padding: 0 10px 12px; }
+  .exclue { opacity: .55; }
+
+  .grille-cartes { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .tete-carte { font-weight: 650; font-size: 14px; margin-bottom: 12px;
+                display: flex; justify-content: space-between; align-items: baseline; }
+  .sous-carte { font-weight: 400; font-size: 12.5px; color: var(--muted); }
+  .version { padding: 10px 0; border-top: 1px solid var(--trait); }
+  .version:first-of-type { border-top: 0; padding-top: 0; }
+  .titre-version { font-size: 13.5px; margin-bottom: 6px; }
+  .gagnante { font-size: 11.5px; font-weight: 650; color: var(--surface); background: var(--accent);
+              border-radius: 99px; padding: 1px 8px; margin-left: 6px; white-space: nowrap; }
+  .detail-version { font-size: 12.5px; color: var(--muted); margin-top: 5px; }
+  .piste-item { display: grid; grid-template-columns: 58px 1fr; gap: 12px; padding: 12px 0;
+                border-bottom: 1px solid var(--trait); }
+  .piste-item:last-child { border-bottom: 0; }
+  .piste-item:first-child { padding-top: 0; }
+  .piste-code { font-size: 12px; font-weight: 650; color: var(--surface); background: var(--accent);
+                border-radius: 6px; padding: 2px 0; text-align: center; height: fit-content; }
+  .piste-titre { font-size: 13.5px; font-weight: 600; }
+  .piste-regle { font-size: 12.5px; color: var(--ink-2); margin-top: 3px; }
+
+  .verdict { font-size: 13px; color: var(--ink-2); background: rgba(27,175,122,.10);
+             border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0;
+             padding: 8px 10px; margin-bottom: 12px; }
+  .stats { display: flex; gap: 18px; margin-top: 4px; }
+  .stat-valeur { font-size: 19px; font-weight: 640; line-height: 1.2; }
+  .stat-nom { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+
+  .provenance { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+  .provenance strong { color: var(--ink-2); font-weight: 600; }
+
+  /* un montant reconstitué par l'outil ne doit pas se confondre avec un
+     montant lu sur le document : il porte un repère et une infobulle */
+  .calcule { border-bottom: 1px dotted var(--attention); cursor: help; }
+  .calcule::after { content: '~'; color: var(--attention); font-weight: 700; margin-left: 3px; }
+  .source { font-size: 11.5px; color: var(--muted); }
+  .note-tableau { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+
+  .action { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start;
+            padding: 13px 0; border-bottom: 1px solid var(--trait); }
+  .action:last-child { border-bottom: 0; }
+  .action:first-child { padding-top: 0; }
+  .action-titre { font-size: 14px; font-weight: 600; }
+  .action-detail { font-size: 13px; color: var(--ink-2); margin-top: 3px; }
+  .action-montant { font-size: 17px; font-weight: 640; font-variant-numeric: tabular-nums;
+                    white-space: nowrap; text-align: right; }
+  .groupe-actions { margin-bottom: 18px; }
+  .groupe-titre { font-size: 13px; font-weight: 650; text-transform: uppercase;
+                  letter-spacing: .04em; color: var(--ink-2); margin-bottom: 8px; }
+
+  .anomalie { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 10px 0;
+              border-bottom: 1px solid var(--trait); }
+  .anomalie:last-child { border-bottom: 0; }
+  .anomalie .icone { font-weight: 700; text-align: center; }
+  .anomalie .titre { font-weight: 600; font-size: 13.5px; }
+  .anomalie .detail { color: var(--ink-2); font-size: 13px; margin-top: 2px; }
+  .ic-bloquant { color: var(--grave); } .ic-verifier { color: var(--attention); }
+  .ic-information { color: var(--muted); }
+  .vide { color: var(--muted); font-size: 13.5px; padding: 10px 0; }
+
+  /* A l'impression : tout le contenu des onglets sort, les commandes
+     disparaissent, et chaque proprietaire peut recevoir son relevé en PDF. */
+  @media print {
+    :root { color-scheme: light; }
+    body { background: #fff; padding: 0; font-size: 11.5pt; }
+    .barre-haut, .onglets, .sous-onglets, .bouton, select { display: none !important; }
+    .panneau[hidden], .sous-panneau[hidden] { display: block !important; }
+    .panneau { break-before: page; }
+    .panneau:first-of-type { break-before: auto; }
+    .bandeau { background: none !important; color: var(--ink) !important;
+               border-bottom: 2px solid var(--du); border-radius: 0; padding: 0 0 10px; }
+    .bandeau h1, .bandeau .sous { color: var(--ink) !important; }
+    .carte { border-color: #ccc; break-inside: avoid; }
+    .tuile { background: #fff !important; }
+    tr, .action, .anomalie, .piste-item { break-inside: avoid; }
+    .pied-impression { display: block !important; margin-top: 18px;
+                       font-size: 10pt; color: #555; }
+  }
+  .pied-impression { display: none; }
+
+  [data-infobulle] { position: relative; cursor: default; }
+  [data-infobulle]:hover::after {
+    content: attr(data-infobulle); position: absolute; left: 0; bottom: 20px; z-index: 5;
+    background: var(--ink); color: var(--surface); font-size: 12.5px; line-height: 1.35;
+    padding: 6px 9px; border-radius: 6px; white-space: pre; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="bandeau">
+    <h1>Lagon Locations</h1>
+    <div class="sous">Gestion locative à Grand Baie — suivi des encaissements et des annonces</div>
+  </div>
+
+  <div class="provenance" id="provenance"></div>
+
+  <div class="barre-haut">
+    <span class="champ"><label for="filtre-proprio">Propriétaire</label>
+      <select id="filtre-proprio"></select></span>
+    <span class="champ"><label for="filtre-periode">Période</label>
+      <select id="filtre-periode"></select></span>
+    <button class="bouton" id="export-rapport">Exporter le rapport</button>
+    <button class="bouton secondaire" id="imprimer">Imprimer / PDF</button>
+    <span class="portee" id="portee"></span>
+  </div>
+
+  <div class="onglets" role="tablist">
+    <button class="onglet" role="tab" data-onglet="tresorerie" aria-selected="true">Trésorerie</button>
+    <button class="onglet" role="tab" data-onglet="reservations" aria-selected="false">Réservations<span class="compteur" id="compteur-anomalies">0</span></button>
+    <button class="onglet" role="tab" data-onglet="annonces" aria-selected="false">Annonces</button>
+    <button class="onglet" role="tab" data-onglet="traiter" aria-selected="false">À traiter<span class="compteur" id="compteur-actions">0</span></button>
+  </div>
+
+  <section class="panneau" id="p-tresorerie">
+    <div class="bloc">
+      <h2>Ce qui est rentré, ce qui manque</h2>
+      <p class="intro">Un paiement compte dans la période où il est encaissé. Un séjour est dû
+         dans la période où il commence.</p>
+      <div class="tuiles" id="tuiles"></div>
+    </div>
+    <div class="bloc">
+      <h2>Par propriétaire</h2>
+      <p class="intro">Le dû des séjours de la période face à ce qui a été encaissé pour eux.</p>
+      <div class="carte">
+        <div class="legende">
+          <span><span class="pastille" style="background:var(--du)"></span>Dû</span>
+          <span><span class="pastille" style="background:var(--encaisse)"></span>Encaissé</span>
+        </div>
+        <div id="barres"></div>
+      </div>
+    </div>
+    <div class="bloc">
+      <h2>Mouvements de la période</h2>
+      <p class="intro">Le détail de ce qui est passé sur le compte.</p>
+      <div class="barre-haut" style="margin-top:0">
+        <span class="champ"><label for="filtre-moyen">Moyen</label>
+          <select id="filtre-moyen"></select></span>
+        <span class="champ"><label for="filtre-sens">Type</label>
+          <select id="filtre-sens">
+            <option value="tous">Tous</option>
+            <option value="entrant">Encaissements</option>
+            <option value="sortant">Remboursements</option>
+          </select></span>
+        <span class="champ"><label for="filtre-rattachement">Rattachement</label>
+          <select id="filtre-rattachement">
+            <option value="tous">Tous</option>
+            <option value="rattache">Rattachés</option>
+            <option value="orphelin">Non rattachés</option>
+          </select></span>
+        <button class="bouton" id="export-mouvements">Exporter en CSV</button>
+      </div>
+      <div class="carte" style="overflow-x:auto"><table id="table-mouvements"></table></div>
+    </div>
+  </section>
+
+  <section class="panneau" id="p-reservations" hidden>
+    <div class="bloc">
+      <h2>Réservations et anomalies</h2>
+      <p class="intro">Les lignes signalées portent un liseré et une puce : rouge pour ce qui bloque,
+         orange pour ce qui demande vérification, gris pour une simple information.
+         Cliquez une ligne signalée pour lire le détail.</p>
+      <div class="barre-haut" style="margin-top:0">
+        <span class="champ"><label for="filtre-signalement">Signalement</label>
+          <select id="filtre-signalement">
+            <option value="tous">Tous</option>
+            <option value="bloquant">Bloquant</option>
+            <option value="à vérifier">À vérifier</option>
+            <option value="information">Information</option>
+            <option value="aucun">Sans anomalie</option>
+          </select></span>
+        <span class="champ"><label for="filtre-statut">Statut de paiement</label>
+          <select id="filtre-statut"></select></span>
+        <span class="champ"><label for="filtre-canal-resa">Canal</label>
+          <select id="filtre-canal-resa"></select></span>
+        <button class="bouton" id="export-resa">Exporter en CSV</button>
+        <span class="portee" id="portee-resa"></span>
+      </div>
+      <div class="carte" style="overflow-x:auto"><table id="table-resa"></table></div>
+      <div class="note-tableau" id="note-provenance"></div>
+    </div>
+    <div class="bloc">
+      <h2>Anomalies sans réservation rattachée</h2>
+      <p class="intro">Elles concernent l'agence et non un propriétaire en particulier.</p>
+      <div class="carte" id="anomalies-agence"></div>
+    </div>
+  </section>
+
+  <section class="panneau" id="p-traiter" hidden>
+    <div class="bloc">
+      <h2>Ce qu'il reste à faire</h2>
+      <p class="intro">Les constats des autres onglets, retournés en actions, les montants
+         d'abord. L'outil propose, l'agence décide.</p>
+      <div id="actions"></div>
+    </div>
+  </section>
+
+  <section class="panneau" id="p-annonces" hidden>
+    <div class="bloc">
+      <h2>Performance des annonces</h2>
+      <p class="intro">Pour chaque logement, les versions d'annonce sont comparées sur ce qui compte
+         d'abord : les réservations obtenues, puis le nombre de personnes qui ont contacté
+         l'agence après avoir vu l'annonce. Le pourcentage rapporte ces contacts au nombre de vues.</p>
+      <div class="barre-haut" style="margin-top:0">
+        <span class="champ"><label for="filtre-canal">Canal</label>
+          <select id="filtre-canal"></select></span>
+        <span class="champ"><label for="filtre-logement">Logement</label>
+          <select id="filtre-logement"></select></span>
+      </div>
+      <div class="sous-onglets" role="tablist">
+        <button class="sous-onglet" role="tab" data-sous="stats" aria-selected="true">Les chiffres</button>
+        <button class="sous-onglet" role="tab" data-sous="pistes" aria-selected="false">Quoi améliorer<span class="compteur calme" id="compteur-pistes">0</span></button>
+      </div>
+      <div class="sous-panneau" id="sp-stats">
+        <div id="comparatif"></div>
+      </div>
+      <div class="sous-panneau" id="sp-pistes" hidden>
+        <div id="pistes"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="pied-impression" id="pied-impression"></div>
+
+</div>
+
+<script>
+const DONNEES = {"provenance": {"genere_le": "12/11/2026 à 20:01", "documents_lus": 15, "documents_en_echec": 0, "mouvements": 17}, "mois_defaut": "2027-01", "periodes": [{"cle": "tout", "libelle": "Toute la période"}, {"cle": "A2026", "libelle": "Année 2026"}, {"cle": "T2026-4", "libelle": "T4 2026"}, {"cle": "A2027", "libelle": "Année 2027"}, {"cle": "T2027-1", "libelle": "T1 2027"}, {"cle": "M2026-12", "libelle": "décembre 2026"}, {"cle": "M2027-01", "libelle": "janvier 2027"}], "reservations": [{"reference": "IB-7719", "proprietaire": "Tom Whitfield", "logement": "TM-01", "voyageur": "Oliver Hastings", "canal": "IslandBooking", "mois": "2027-01", "arrivee": "06/01", "depart": "11/01", "du": 660.0, "encaisse": 660.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "IB-7719.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": false, "anomalies": [], "gravite_max": ""}, {"reference": "IB-7744", "proprietaire": "Tom Whitfield", "logement": "TM-02", "voyageur": "Sarah O'Donnell", "canal": "IslandBooking", "mois": "2027-01", "arrivee": "10/01", "depart": "17/01", "du": 866.0, "encaisse": 866.0, "ecart": 0.0, "statut": "réglé", "origine_total": "reconstitué", "fichier_source": "IB-7744.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": false, "anomalies": [{"type": "sous-total reconstitué", "detail": "absent du document, calculé 118.00 x 7 = 826.00", "gravite": "information", "source": "réservations"}, {"type": "total reconstitué", "detail": "absent du document, calculé 826.00 + 40.00 = 866.00", "gravite": "information", "source": "réservations"}], "gravite_max": "information"}, {"reference": "IB-7801", "proprietaire": "Priya Ramdhun", "logement": "FF-01", "voyageur": "Daniel & Rachel Osei", "canal": "IslandBooking", "mois": "2027-01", "arrivee": "15/01", "depart": "22/01", "du": 1320.0, "encaisse": 1320.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "IB-7801.pdf", "nb_mouvements": 2, "retenu": true, "a_verifier": false, "anomalies": [], "gravite_max": ""}, {"reference": "IB-7830", "proprietaire": "Priya Ramdhun", "logement": "FF-03", "voyageur": "Yuki Tanaka", "canal": "IslandBooking", "mois": "2027-01", "arrivee": "19/01", "depart": "23/01", "du": 365.0, "encaisse": 365.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "IB-7830.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": true, "anomalies": [{"type": "nuits incohérentes", "detail": "5 nuits annoncées, 4 d'après les dates (19/01/2027 au 23/01/2027)", "gravite": "à vérifier", "source": "réservations"}], "gravite_max": "à vérifier"}, {"reference": "IB-7866", "proprietaire": "Tom Whitfield", "logement": "TM-01", "voyageur": "Patrick Lemoine", "canal": "IslandBooking", "mois": "2027-01", "arrivee": "20/01", "depart": "24/01", "du": 536.0, "encaisse": 536.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "IB-7866.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": true, "anomalies": [{"type": "doublon probable", "detail": "même logement et mêmes dates que LL-2027-016 (556.00) ; total de cette ligne : 536.00", "gravite": "bloquant", "source": "réservations"}, {"type": "doublon consolidé", "detail": "séjour compté une seule fois ; LL-2027-016 exclue(s) des totaux car sans paiement rattaché", "gravite": "information", "source": "paiements"}], "gravite_max": "bloquant"}, {"reference": "LL-2027-014", "proprietaire": "Marc Lefèvre", "logement": "GB-01", "voyageur": "Famille Rivet", "canal": "Réservation directe", "mois": "2027-01", "arrivee": "14/01", "depart": "21/01", "du": 529.0, "encaisse": 529.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "LL-2027-014.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": false, "anomalies": [], "gravite_max": ""}, {"reference": "LL-2027-015", "proprietaire": "Priya Ramdhun", "logement": "FF-01", "voyageur": "Société Blue Horizon Ltd", "canal": "Réservation directe", "mois": "2027-01", "arrivee": "23/01", "depart": "27/01", "du": 780.0, "encaisse": 0.0, "ecart": -780.0, "statut": "impayé", "origine_total": "document", "fichier_source": "LL-2027-015.pdf", "nb_mouvements": 0, "retenu": true, "a_verifier": false, "anomalies": [], "gravite_max": ""}, {"reference": "LL-2027-016", "proprietaire": "Tom Whitfield", "logement": "TM-01", "voyageur": "Patrick Lemoine", "canal": "Réservation directe", "mois": "2027-01", "arrivee": "20/01", "depart": "24/01", "du": 556.0, "encaisse": 0.0, "ecart": -556.0, "statut": "impayé", "origine_total": "document", "fichier_source": "LL-2027-016.pdf", "nb_mouvements": 0, "retenu": false, "a_verifier": true, "anomalies": [{"type": "doublon probable", "detail": "même logement et mêmes dates que IB-7866 (536.00) ; total de cette ligne : 556.00", "gravite": "bloquant", "source": "réservations"}, {"type": "tarif hors grille", "detail": "129.00 facturé, 124.00 au référentiel pour TM-01", "gravite": "à vérifier", "source": "réservations"}], "gravite_max": "bloquant"}, {"reference": "LL-2027-017", "proprietaire": "Marc Lefèvre", "logement": "GB-02", "voyageur": "Nadia Beebeejaun", "canal": "Réservation directe", "mois": "2027-01", "arrivee": "25/01", "depart": "29/01", "du": 285.0, "encaisse": 285.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "LL-2027-017.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": false, "anomalies": [{"type": "sous-total non reconstituable", "detail": "ni sous-total ni tarif par nuit sur le document", "gravite": "information", "source": "réservations"}], "gravite_max": "information"}, {"reference": "LL-2027-018", "proprietaire": "Marc Lefèvre", "logement": "GB-03", "voyageur": "Thomas Girard", "canal": "Réservation directe", "mois": "2027-01", "arrivee": "22/01", "depart": "29/01", "du": 646.0, "encaisse": 150.0, "ecart": -496.0, "statut": "partiellement réglé", "origine_total": "document", "fichier_source": "LL-2027-018.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": false, "anomalies": [], "gravite_max": ""}, {"reference": "SS-48201", "proprietaire": "Marc Lefèvre", "logement": "GB-01", "voyageur": "Camille Berthier", "canal": "SunStay", "mois": "2027-01", "arrivee": "03/01", "depart": "08/01", "du": 385.0, "encaisse": 385.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "SS-48201.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": false, "anomalies": [], "gravite_max": ""}, {"reference": "SS-48255", "proprietaire": "Marc Lefèvre", "logement": "GB-03", "voyageur": "Jonas Meyer", "canal": "SunStay", "mois": "2027-01", "arrivee": "05/01", "depart": "12/01", "du": 646.0, "encaisse": 200.0, "ecart": -446.0, "statut": "partiellement réglé", "origine_total": "document", "fichier_source": "SS-48255.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": false, "anomalies": [], "gravite_max": ""}, {"reference": "SS-48310", "proprietaire": "Marc Lefèvre", "logement": "GB-02", "voyageur": "Léa Dumont", "canal": "SunStay", "mois": "2027-01", "arrivee": "09/01", "depart": "13/01", "du": 155.0, "encaisse": 155.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "SS-48310.pdf", "nb_mouvements": 2, "retenu": true, "a_verifier": true, "anomalies": [{"type": "réservation annulée", "detail": "statut « Annulée par le voyageur le 02/01/2027 » : le total affiché ne correspond pas à ce qui reste dû (Remboursement partiel de 130,00 (50 % du sous-total hébergement, frais de ménage non remboursés))", "gravite": "bloquant", "source": "réservations"}, {"type": "annulation : montant dû ajusté", "detail": "total 285.00 ramené à 155.00 après remboursement de 130.00 — à contrôler à la main", "gravite": "information", "source": "paiements"}], "gravite_max": "bloquant"}, {"reference": "SS-48377", "proprietaire": "Priya Ramdhun", "logement": "FF-02", "voyageur": "MARIE-CHRISTINE VAN DER BERGHE", "canal": "SunStay", "mois": "2027-01", "arrivee": "11/01", "depart": "18/01", "du": 700.0, "encaisse": 700.0, "ecart": 0.0, "statut": "réglé", "origine_total": "document", "fichier_source": "SS-48377.pdf", "nb_mouvements": 1, "retenu": true, "a_verifier": false, "anomalies": [], "gravite_max": ""}, {"reference": "SS-48402", "proprietaire": "Marc Lefèvre", "logement": "GB-04", "voyageur": "Hugo Lambert", "canal": "SunStay", "mois": "2027-01", "arrivee": "22/01", "depart": "27/01", "du": 480.0, "encaisse": 960.0, "ecart": 480.0, "statut": "trop-perçu", "origine_total": "document", "fichier_source": "SS-48402.pdf", "nb_mouvements": 2, "retenu": true, "a_verifier": false, "anomalies": [{"type": "double encaissement", "detail": "2 paiements pour un dû de 480.00, soit 480.00 de trop-perçu", "gravite": "bloquant", "source": "paiements"}], "gravite_max": "bloquant"}], "mouvements": [{"date": "12/12/2026", "mois": "2026-12", "libelle": "VIR J. MEYER ACOMPTE", "montant": 200.0, "moyen": "virement", "reference": "SS-48255", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "20/12/2026", "mois": "2026-12", "libelle": "CARD PAYMENT OSEI D&R DEPOSIT", "montant": 400.0, "moyen": "carte", "reference": "IB-7801", "proprietaire": "Priya Ramdhun", "compte": true}, {"date": "22/12/2026", "mois": "2026-12", "libelle": "VIR L. DUMONT SEJOUR JANVIER", "montant": 285.0, "moyen": "virement", "reference": "SS-48310", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "28/12/2026", "mois": "2026-12", "libelle": "VIREMENT RIVET", "montant": 529.0, "moyen": "virement", "reference": "LL-2027-014", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "03/01/2027", "mois": "2027-01", "libelle": "CARD PAYMENT BERTHIER C", "montant": 385.0, "moyen": "carte", "reference": "SS-48201", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "06/01/2027", "mois": "2027-01", "libelle": "CARD PAYMENT HASTINGS O", "montant": 660.0, "moyen": "carte", "reference": "IB-7719", "proprietaire": "Tom Whitfield", "compte": true}, {"date": "07/01/2027", "mois": "2027-01", "libelle": "REMB. L. DUMONT ANNULATION", "montant": -130.0, "moyen": "virement", "reference": "SS-48310", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "10/01/2027", "mois": "2027-01", "libelle": "CARD PAYMENT O'DONNELL S", "montant": 866.0, "moyen": "carte", "reference": "IB-7744", "proprietaire": "Tom Whitfield", "compte": true}, {"date": "11/01/2027", "mois": "2027-01", "libelle": "VIR MARIE C VAN DER BERGHE", "montant": 700.0, "moyen": "virement", "reference": "SS-48377", "proprietaire": "Priya Ramdhun", "compte": true}, {"date": "15/01/2027", "mois": "2027-01", "libelle": "CARD PAYMENT OSEI D&R BALANCE", "montant": 920.0, "moyen": "carte", "reference": "IB-7801", "proprietaire": "Priya Ramdhun", "compte": true}, {"date": "19/01/2027", "mois": "2027-01", "libelle": "CARD PAYMENT TANAKA Y", "montant": 365.0, "moyen": "carte", "reference": "IB-7830", "proprietaire": "Priya Ramdhun", "compte": true}, {"date": "20/01/2027", "mois": "2027-01", "libelle": "CARD PAYMENT LEMOINE P", "montant": 536.0, "moyen": "carte", "reference": "IB-7866", "proprietaire": "Tom Whitfield", "compte": true}, {"date": "22/01/2027", "mois": "2027-01", "libelle": "CARD PAYMENT LAMBERT H", "montant": 480.0, "moyen": "carte", "reference": "SS-48402", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "22/01/2027", "mois": "2027-01", "libelle": "VIR T. GIRARD ACOMPTE", "montant": 150.0, "moyen": "virement", "reference": "LL-2027-018", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "23/01/2027", "mois": "2027-01", "libelle": "CARD PAYMENT LAMBERT H", "montant": 480.0, "moyen": "carte", "reference": "SS-48402", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "25/01/2027", "mois": "2027-01", "libelle": "Espèces - N. Beebeejaun", "montant": 285.0, "moyen": "espèces", "reference": "LL-2027-017", "proprietaire": "Marc Lefèvre", "compte": true}, {"date": "27/01/2027", "mois": "2027-01", "libelle": "VIR P. CHARPENTIER", "montant": 350.0, "moyen": "virement", "reference": null, "proprietaire": null, "compte": false}], "annonces": [{"id_annonce": "AN-011", "code_logement": "TM-01", "canal": "IslandBooking", "titre": "Sunset sea view, renovated, Tamarin bay", "date_mise_en_ligne": "10/12/2026", "vues": 1930, "demandes_contact": 129, "reservations_declarees": 1, "taux_contact": 6.68, "proprietaire": "Tom Whitfield"}, {"id_annonce": "AN-007", "code_logement": "FF-01", "canal": "IslandBooking", "titre": "Family villa, pool and garden, sleeps 8", "date_mise_en_ligne": "05/12/2026", "vues": 2680, "demandes_contact": 171, "reservations_declarees": 1, "taux_contact": 6.38, "proprietaire": "Priya Ramdhun"}, {"id_annonce": "AN-002", "code_logement": "GB-01", "canal": "SunStay", "titre": "Studio lumineux, terrasse privée, Grand Baie", "date_mise_en_ligne": "01/12/2026", "vues": 2310, "demandes_contact": 118, "reservations_declarees": 1, "taux_contact": 5.11, "proprietaire": "Marc Lefèvre"}, {"id_annonce": "AN-006", "code_logement": "FF-01", "canal": "IslandBooking", "titre": "Villa with private pool, Flic en Flac", "date_mise_en_ligne": "20/10/2026", "vues": 3120, "demandes_contact": 142, "reservations_declarees": 1, "taux_contact": 4.55, "proprietaire": "Priya Ramdhun"}, {"id_annonce": "AN-010", "code_logement": "TM-01", "canal": "IslandBooking", "titre": "Sea view apartment, Tamarin", "date_mise_en_ligne": "28/10/2026", "vues": 2050, "demandes_contact": 74, "reservations_declarees": 1, "taux_contact": 3.61, "proprietaire": "Tom Whitfield"}, {"id_annonce": "AN-004", "code_logement": "GB-03", "canal": "SunStay", "titre": "Deux-pièces pour 4, cuisine équipée", "date_mise_en_ligne": "10/11/2026", "vues": 1520, "demandes_contact": 54, "reservations_declarees": 2, "taux_contact": 3.55, "proprietaire": "Marc Lefèvre"}, {"id_annonce": "AN-001", "code_logement": "GB-01", "canal": "SunStay", "titre": "Studio cosy à 5 min de la plage", "date_mise_en_ligne": "02/11/2026", "vues": 1840, "demandes_contact": 62, "reservations_declarees": 1, "taux_contact": 3.37, "proprietaire": "Marc Lefèvre"}, {"id_annonce": "AN-008", "code_logement": "FF-02", "canal": "IslandBooking", "titre": "Lagoon-side apartment, 2 bedrooms", "date_mise_en_ligne": "15/11/2026", "vues": 1460, "demandes_contact": 48, "reservations_declarees": 1, "taux_contact": 3.29, "proprietaire": "Priya Ramdhun"}, {"id_annonce": "AN-009", "code_logement": "FF-03", "canal": "IslandBooking", "titre": "Compact studio, 3 min walk to the beach", "date_mise_en_ligne": "15/11/2026", "vues": 870, "demandes_contact": 26, "reservations_declarees": 1, "taux_contact": 2.99, "proprietaire": "Priya Ramdhun"}, {"id_annonce": "AN-012", "code_logement": "TM-02", "canal": "IslandBooking", "titre": "Sea view flat, quiet residence", "date_mise_en_ligne": "28/10/2026", "vues": 1340, "demandes_contact": 39, "reservations_declarees": 1, "taux_contact": 2.91, "proprietaire": "Tom Whitfield"}, {"id_annonce": "AN-005", "code_logement": "GB-04", "canal": "SunStay", "titre": "Deux-pièces récent, proche commerces", "date_mise_en_ligne": "10/11/2026", "vues": 1180, "demandes_contact": 33, "reservations_declarees": 1, "taux_contact": 2.8, "proprietaire": "Marc Lefèvre"}, {"id_annonce": "AN-003", "code_logement": "GB-02", "canal": "SunStay", "titre": "Studio calme, quartier résidentiel", "date_mise_en_ligne": "02/11/2026", "vues": 940, "demandes_contact": 21, "reservations_declarees": 1, "taux_contact": 2.23, "proprietaire": "Marc Lefèvre"}], "anomalies_agence": [{"type": "paiement non rattaché", "detail": "« VIR P. CHARPENTIER » du 27/01/2027 (350.00) ne correspond à aucune réservation", "gravite": "bloquant", "source": "paiements"}]};
+const euro = v => v.toLocaleString('fr-FR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+
+/* Une période est "tout", une année (A2027), un trimestre (T2027-1) ou un mois
+   (M2027-01). dansPeriode compare le mois d'un élément à ce choix. */
+function dansPeriode(mois, cle) {
+  if (cle === 'tout') return true;
+  const annee = mois.slice(0, 4), numero = parseInt(mois.slice(5, 7), 10);
+  if (cle[0] === 'A') return annee === cle.slice(1);
+  if (cle[0] === 'M') return mois === cle.slice(1);
+  if (cle[0] === 'T') {
+    const [a, t] = cle.slice(1).split('-');
+    return annee === a && Math.ceil(numero / 3) === parseInt(t, 10);
+  }
+  return true;
+}
+
+let etat = {proprio: 'tous', periode: 'M' + DONNEES.mois_defaut,
+            canal: 'tous', logement: 'tous', tri: 'reservations',
+            signalement: 'tous', statut: 'tous', canalResa: 'tous',
+            moyen: 'tous', sens: 'tous', rattachement: 'tous'};
+
+// ce que les boutons d'export doivent écrire : toujours ce qui est à l'écran
+let derniereSelection = [];
+let derniersMouvements = [];
+
+function vue() {
+  const parProprio = r => etat.proprio === 'tous' || r.proprietaire === etat.proprio;
+  const resa = DONNEES.reservations.filter(parProprio);
+  const resaPeriode = resa.filter(r => dansPeriode(r.mois, etat.periode));
+  const mouvements = DONNEES.mouvements
+    .filter(m => dansPeriode(m.mois, etat.periode))
+    .filter(m => etat.proprio === 'tous' || m.proprietaire === etat.proprio);
+  const annonces = DONNEES.annonces.filter(parProprio);
+  return {resa, resaPeriode, mouvements, annonces};
+}
+
+function dessinerTuiles(v) {
+  const retenues = v.resaPeriode.filter(r => r.retenu);
+  const encaissePeriode = v.mouvements.filter(m => m.compte).reduce((s, m) => s + m.montant, 0);
+  const du = retenues.reduce((s, r) => s + r.du, 0);
+  const encaisse = retenues.reduce((s, r) => s + r.encaisse, 0);
+  // argent qui manque et argent encaissé en trop sont deux problèmes opposés :
+  // les additionner masquerait l'un par l'autre.
+  const manquant = retenues.filter(r => r.ecart < 0).reduce((s, r) => s + r.ecart, 0);
+  const trop = retenues.filter(r => r.ecart > 0).reduce((s, r) => s + r.ecart, 0);
+
+  document.getElementById('tuiles').innerHTML = `
+    <div class="carte tuile lagon">
+      <div class="etiquette">Encaissé sur la période</div>
+      <div class="valeur">${euro(encaissePeriode)}</div>
+      <div class="note">${v.mouvements.length} mouvement(s)</div>
+    </div>
+    <div class="carte tuile sable">
+      <div class="etiquette">Dû sur la période</div>
+      <div class="valeur">${euro(du)}</div>
+      <div class="note">${retenues.length} séjour(s) · encaissé pour eux : ${euro(encaisse)}</div>
+    </div>
+    <div class="carte tuile ${manquant < 0 ? 'corail' : 'lagon'}">
+      <div class="etiquette">Reste à encaisser</div>
+      <div class="valeur ${manquant < 0 ? 'negatif' : 'positif'}">${euro(Math.abs(manquant))}</div>
+      <div class="note">${retenues.filter(r => r.ecart < 0).length} séjour(s) à relancer</div>
+    </div>
+    <div class="carte tuile ${trop > 0 ? 'soleil' : 'lagon'}">
+      <div class="etiquette">Trop-perçu à rembourser</div>
+      <div class="valeur ${trop > 0 ? 'negatif' : 'positif'}">${euro(trop)}</div>
+      <div class="note">${retenues.filter(r => r.ecart > 0).length} séjour(s) concerné(s)</div>
+    </div>`;
+}
+
+function dessinerBarres(v) {
+  const parProprio = {};
+  v.resaPeriode.filter(r => r.retenu).forEach(r => {
+    const p = parProprio[r.proprietaire] ||= {du: 0, encaisse: 0, sejours: 0};
+    p.du += r.du; p.encaisse += r.encaisse; p.sejours += 1;
+  });
+  const noms = Object.keys(parProprio).sort();
+  const max = Math.max(...noms.map(n => Math.max(parProprio[n].du, parProprio[n].encaisse)), 1);
+  document.getElementById('barres').innerHTML = noms.length ? noms.map(n => {
+    const p = parProprio[n], ecart = p.encaisse - p.du;
+    return `<div class="barre-ligne">
+      <div class="nom">${n}<br><span style="color:var(--muted);font-size:12px">${p.sejours} séjours</span></div>
+      <div class="piste">
+        <div class="rang">
+          <div class="barre du" style="width:${p.du / max * 76}%" data-infobulle="Dû : ${euro(p.du)}"></div>
+          <span class="valeur-barre">${euro(p.du)}</span>
+        </div>
+        <div class="rang">
+          <div class="barre encaisse" style="width:${p.encaisse / max * 76}%" data-infobulle="Encaissé : ${euro(p.encaisse)}"></div>
+          <span class="valeur-barre">${euro(p.encaisse)}</span>
+        </div>
+      </div>
+      <div class="chiffre ${ecart < 0 ? 'negatif' : ''}">${euro(ecart)}</div>
+    </div>`;
+  }).join('') : '<div class="vide">Aucun séjour sur cette période.</div>';
+}
+
+function mouvementsFiltres(v) {
+  return v.mouvements
+    .filter(m => etat.moyen === 'tous' || m.moyen === etat.moyen)
+    .filter(m => etat.sens === 'tous'
+      || (etat.sens === 'entrant' ? m.montant > 0 : m.montant < 0))
+    .filter(m => etat.rattachement === 'tous'
+      || (etat.rattachement === 'rattache' ? !!m.reference : !m.reference));
+}
+
+function dessinerMouvements(v) {
+  const liste = mouvementsFiltres(v);
+  derniersMouvements = liste;
+  const entetes = ['Date', 'Libellé', 'Moyen', 'Rattaché à', 'Montant'];
+  document.getElementById('table-mouvements').innerHTML =
+    `<thead><tr>${entetes.map(e => `<th>${e}</th>`).join('')}</tr></thead><tbody>` +
+    (liste.length ? liste.map(m => `<tr>
+      <td>${m.date}</td><td>${m.libelle}</td><td>${m.moyen}</td>
+      <td>${m.reference || '<span style="color:var(--grave)">non rattaché</span>'}</td>
+      <td class="nombre ${m.montant < 0 ? 'negatif' : ''}">${euro(m.montant)}</td>
+    </tr>`).join('') : '<tr><td colspan="5" class="vide">Aucun mouvement avec ces filtres.</td></tr>')
+    + '</tbody>';
+}
+
+/* --- export --- */
+/* Le point-virgule est le séparateur attendu par Excel en français, et le BOM
+   lui dit que le fichier est en UTF-8, sinon les accents ressortent cassés. */
+function telecharger(nom, entetes, lignes) {
+  telechargerLignes(nom, [entetes, ...lignes]);
+}
+
+function telechargerLignes(nom, lignes) {
+  const echapper = v => {
+    const t = String(v ?? '');
+    return /[";\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  const csv = lignes.map(l => l.map(echapper).join(';')).join('\r\n');
+  const lien = document.createElement('a');
+  lien.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8'}));
+  lien.download = nom;
+  lien.click();
+  URL.revokeObjectURL(lien.href);
+}
+
+/* Le rapport complet tient dans un seul fichier, en blocs séparés par une ligne
+   vide : Excel ouvre ça sans broncher, et le propriétaire reçoit une seule
+   pièce jointe au lieu de trois. */
+function exporterRapport() {
+  const v = vue();
+  const retenues = v.resaPeriode.filter(r => r.retenu);
+  const mouvements = mouvementsFiltres(v);
+  const periode = DONNEES.periodes.find(p => p.cle === etat.periode);
+  const somme = (liste, cle) => liste.reduce((s, x) => s + x[cle], 0);
+  const manquant = retenues.filter(r => r.ecart < 0).reduce((s, r) => s + r.ecart, 0);
+  const trop = retenues.filter(r => r.ecart > 0).reduce((s, r) => s + r.ecart, 0);
+
+  const lignes = [
+    ['Lagon Locations — rapport'],
+    ['Périmètre', etat.proprio === 'tous' ? 'Toute l\'agence' : etat.proprio],
+    ['Période', periode ? periode.libelle : ''],
+    [],
+    ['TRÉSORERIE'],
+    ['Encaissé sur la période', somme(mouvements.filter(m => m.compte), 'montant')],
+    ['Dû sur la période', somme(retenues, 'du')],
+    ['Encaissé pour ces séjours', somme(retenues, 'encaisse')],
+    ['Reste à encaisser', Math.abs(manquant)],
+    ['Trop-perçu à rembourser', trop],
+    ['Séjours retenus', retenues.length],
+    [],
+    ['RÉSERVATIONS'],
+    ['Référence', 'Logement', 'Voyageur', 'Canal', 'Arrivée', 'Départ',
+     'Dû', 'Encaissé', 'Écart', 'Statut', 'Compté dans les totaux', 'Anomalies'],
+    ...derniereSelection.map(r => [r.reference, r.logement, r.voyageur, r.canal,
+      r.arrivee, r.depart, r.du, r.encaisse, r.ecart, r.statut,
+      r.retenu ? 'oui' : 'non',
+      r.anomalies.map(a => `${a.gravite} : ${a.type}`).join(' | ')]),
+    [],
+    ['MOUVEMENTS DE LA PÉRIODE'],
+    ['Date', 'Libellé', 'Moyen', 'Réservation', 'Montant'],
+    ...mouvements.map(m => [m.date, m.libelle, m.moyen, m.reference || 'non rattaché', m.montant]),
+  ];
+  telechargerLignes(nomFichier('rapport'), lignes);
+}
+
+function nomFichier(quoi) {
+  const periode = DONNEES.periodes.find(p => p.cle === etat.periode);
+  const morceaux = ['lagon', quoi,
+    etat.proprio === 'tous' ? 'agence' : etat.proprio,
+    periode ? periode.libelle : ''];
+  return morceaux.join('_').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase() + '.csv';
+}
+
+const ICONES = {'bloquant': ['✕', 'ic-bloquant'], 'à vérifier': ['!', 'ic-verifier'],
+                'information': ['i', 'ic-information']};
+const CLASSE = {'bloquant': 'bloquant', 'à vérifier': 'verifier', 'information': 'information'};
+
+function dessinerTableResa(v) {
+  // Les filtres propres à cet onglet s'appliquent par-dessus le filtre
+  // propriétaire ; le compteur de l'onglet, lui, reste sur le total non filtré,
+  // sinon masquer une anomalie la ferait disparaître du compteur aussi.
+  const filtrees = v.resa
+    .filter(r => etat.signalement === 'tous'
+      || (etat.signalement === 'aucun' ? r.anomalies.length === 0
+          : r.anomalies.some(a => a.gravite === etat.signalement)))
+    .filter(r => etat.statut === 'tous' || r.statut === etat.statut)
+    .filter(r => etat.canalResa === 'tous' || r.canal === etat.canalResa);
+
+  document.getElementById('portee-resa').textContent =
+    `${filtrees.length} ligne(s) sur ${v.resa.length}`;
+  derniereSelection = filtrees;
+
+  const entetes = ['Référence', 'Logement', 'Voyageur', 'Séjour', 'Canal', 'Dû', 'Encaissé', 'Écart', 'Statut'];
+  const corps = filtrees.map((r, i) => {
+    const classe = (r.gravite_max ? CLASSE[r.gravite_max] : '') + (r.retenu ? '' : ' exclue')
+                 + (r.anomalies.length ? ' ouvrable' : '');
+    const puce = r.anomalies.length
+      ? `<span class="puce ${CLASSE[r.gravite_max]}">${ICONES[r.gravite_max][0]} ${r.anomalies.length}</span>` : '';
+    const detail = r.anomalies.length ? `<tr class="detail-ligne" id="detail-${i}" hidden>
+      <td colspan="9">${r.anomalies.map(a => {
+        const [icone, cl] = ICONES[a.gravite];
+        return `<div class="anomalie"><div class="icone ${cl}">${icone}</div>
+          <div><div class="titre">${a.type} <span class="etat">${a.gravite}</span></div>
+          <div class="detail">${a.detail}</div></div></div>`;
+      }).join('')}</td></tr>` : '';
+    // un montant reconstitué est signalé : il n'était écrit sur aucun document
+    const calcule = r.origine_total === 'reconstitué';
+    const montantDu = calcule
+      ? `<span class="calcule" title="Montant absent du document, reconstitué par l'outil">${euro(r.du)}</span>`
+      : euro(r.du);
+    return `<tr class="ligne ${classe}" data-detail="detail-${i}">
+      <td>${r.reference}${puce}<br><span class="source">${r.fichier_source || ''}</span></td>
+      <td>${r.logement}</td><td>${r.voyageur}</td>
+      <td>${r.arrivee} → ${r.depart}</td><td>${r.canal}</td>
+      <td class="nombre">${montantDu}</td>
+      <td class="nombre">${euro(r.encaisse)}</td>
+      <td class="nombre ${r.ecart < 0 ? 'negatif' : ''}">${euro(r.ecart)}</td>
+      <td><span class="etat">${r.statut}</span></td></tr>` + detail;
+  }).join('');
+
+  document.getElementById('table-resa').innerHTML =
+    `<thead><tr>${entetes.map(e => `<th>${e}</th>`).join('')}</tr></thead><tbody>` +
+    (corps || '<tr><td colspan="9" class="vide">Aucune réservation ne correspond à ces filtres.</td></tr>') +
+    '</tbody>';
+
+  const reconstitues = filtrees.filter(r => r.origine_total === 'reconstitué').length;
+  document.getElementById('note-provenance').innerHTML = reconstitues
+    ? `Le signe <span class="calcule"></span> marque ${reconstitues} montant(s) qui n'étaient `
+      + `écrits sur aucun document et que l'outil a reconstitués à partir du tarif, `
+      + `des nuits et des frais de ménage.`
+    : 'Tous les montants affichés ont été lus directement sur les documents.';
+
+  document.querySelectorAll('#table-resa tr.ouvrable').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const detail = document.getElementById(tr.dataset.detail);
+      if (detail) detail.hidden = !detail.hidden;
+    });
+  });
+
+  const bloquantes = v.resa.reduce(
+    (s, r) => s + r.anomalies.filter(a => a.gravite === 'bloquant').length, 0);
+  const toutes = v.resa.reduce((s, r) => s + r.anomalies.length, 0)
+    + (etat.proprio === 'tous' ? DONNEES.anomalies_agence.length : 0);
+  const compteur = document.getElementById('compteur-anomalies');
+  compteur.textContent = bloquantes || toutes;
+  compteur.className = 'compteur' + (bloquantes ? '' : ' calme');
+}
+
+function dessinerAnomaliesAgence() {
+  const liste = etat.proprio === 'tous' ? DONNEES.anomalies_agence : [];
+  document.getElementById('anomalies-agence').innerHTML = liste.length ? liste.map(a => {
+    const [icone, cl] = ICONES[a.gravite] || ICONES['information'];
+    return `<div class="anomalie"><div class="icone ${cl}">${icone}</div>
+      <div><div class="titre">${a.type} <span class="etat">${a.gravite}</span></div>
+      <div class="detail">${a.detail}</div></div></div>`;
+  }).join('') : '<div class="vide">Rien à signaler sur ce périmètre.</div>';
+}
+
+/* Un tableau répond mal à la question « quelle version marche le mieux ? ».
+   On regroupe par logement, et on classe les versions d'abord sur le nombre de
+   réservations obtenues, ensuite sur les demandes reçues : c'est ce qui compte
+   pour l'agence, le pourcentage n'est qu'une explication. */
+function dessinerComparatif(liste) {
+  const parLogement = {};
+  liste.forEach(a => (parLogement[a.code_logement] ||= []).push(a));
+  const codes = Object.keys(parLogement).sort();
+  const maxGlobal = Math.max(...liste.map(a => a.taux_contact), 0.1);
+
+  document.getElementById('comparatif').innerHTML = codes.length ? `
+    <div class="grille-cartes">${codes.map(code => {
+      const versions = [...parLogement[code]].sort((x, y) =>
+        (y.reservations_declarees - x.reservations_declarees)
+        || (y.demandes_contact - x.demandes_contact));
+      const comparable = versions.length > 1;
+      const verdict = comparable ? verdictLogement(versions) : '';
+      return `<div class="carte">
+        <div class="tete-carte">${code}
+          <span class="sous-carte">${versions.length} version${comparable ? 's' : ''}</span></div>
+        ${verdict}
+        ${versions.map((a, i) => `
+          <div class="version">
+            <div class="titre-version">${a.titre}
+              ${comparable && i === 0 ? '<span class="gagnante">la plus efficace</span>' : ''}</div>
+            <div class="stats">
+              <div class="stat"><div class="stat-valeur">${a.reservations_declarees}</div>
+                <div class="stat-nom">réservation${a.reservations_declarees > 1 ? 's' : ''}</div></div>
+              <div class="stat"><div class="stat-valeur">${a.demandes_contact}</div>
+                <div class="stat-nom">contacts reçus</div></div>
+              <div class="stat"><div class="stat-valeur">${a.vues.toLocaleString('fr-FR')}</div>
+                <div class="stat-nom">vues</div></div>
+            </div>
+            <div class="rang" style="margin-top:8px">
+              <div class="barre ${i === 0 ? 'du' : 'encaisse'}"
+                   style="width:${a.taux_contact / maxGlobal * 62}%"
+                   data-infobulle="${a.demandes_contact} contacts pour ${a.vues} vues"></div>
+              <span class="valeur-barre">${a.taux_contact.toFixed(2)} %</span>
+            </div>
+            <div class="detail-version">sur 100 personnes qui ont vu cette annonce,
+              ${a.taux_contact.toFixed(1).replace('.', ',')} ont contacté l'agence</div>
+          </div>`).join('')}
+      </div>`;
+    }).join('')}</div>` : '<div class="carte"><div class="vide">Aucune annonce sur ce périmètre.</div></div>';
+}
+
+/* Une phrase en français plutôt qu'un pourcentage à interpréter. */
+function verdictLogement(versions) {
+  const [premiere, seconde] = versions;
+  if (premiere.reservations_declarees > seconde.reservations_declarees) {
+    return `<div class="verdict">La première version a amené
+      ${premiere.reservations_declarees} réservation(s) contre
+      ${seconde.reservations_declarees}.</div>`;
+  }
+  const rapport = seconde.demandes_contact
+    ? (premiere.demandes_contact / seconde.demandes_contact) : 0;
+  if (rapport >= 1.15) {
+    const vues = premiere.vues < seconde.vues
+      ? ', alors qu\'elle a été moins vue' : '';
+    return `<div class="verdict">À nombre de réservations égal, la première version
+      reçoit ${rapport.toFixed(1).replace('.', ',')} fois plus de contacts${vues}.</div>`;
+  }
+  return `<div class="verdict">Les deux versions se valent pour l'instant :
+    autant de réservations et des contacts comparables.</div>`;
+}
+
+/* --- pistes d'amélioration ---
+   Chaque recommandation vient d'une comparaison chiffrée, jamais d'un conseil
+   marketing générique : la règle appliquée est écrite à côté, pour que l'agence
+   puisse la contester. Les seuils se calculent sur les annonces affichées, donc
+   une annonce est jugée par rapport aux autres du portefeuille, pas dans l'absolu. */
+function dessinerPistes(liste) {
+  const cible = document.getElementById('pistes');
+  if (liste.length < 2) {
+    compterPistes(0);
+    cible.innerHTML = '<p class="intro">Pas assez d\'annonces sur ce périmètre pour comparer.</p>';
+    return;
+  }
+
+  const mediane = tableau => {
+    const t = [...tableau].sort((a, b) => a - b);
+    const m = Math.floor(t.length / 2);
+    return t.length % 2 ? t[m] : (t[m - 1] + t[m]) / 2;
+  };
+  const tauxMedian = mediane(liste.map(a => a.taux_contact));
+  const vuesMedianes = mediane(liste.map(a => a.vues));
+
+  const parLogement = {};
+  liste.forEach(a => (parLogement[a.code_logement] ||= []).push(a));
+
+  const pistes = [];
+  Object.entries(parLogement).forEach(([code, versions]) => {
+    const triees = [...versions].sort((x, y) => y.taux_contact - x.taux_contact);
+    const meilleure = triees[0], pire = triees[triees.length - 1];
+
+    // 1. une version domine nettement : aligner l'autre
+    if (versions.length > 1 && meilleure.taux_contact >= pire.taux_contact * 1.25) {
+      pistes.push({code, priorite: 1,
+        titre: `Reprendre « ${pire.titre} » sur le modèle de « ${meilleure.titre} »`,
+        regle: `${meilleure.taux_contact.toFixed(2)} % de contacts contre `
+             + `${pire.taux_contact.toFixed(2)} % sur le même logement, `
+             + `soit ${(meilleure.taux_contact / pire.taux_contact).toFixed(1)} fois mieux.`});
+    }
+
+    // 2. bien vue mais peu de contacts : c'est l'annonce, pas la visibilité
+    versions.forEach(a => {
+      if (a.vues >= vuesMedianes && a.taux_contact < tauxMedian) {
+        pistes.push({code, priorite: 2,
+          titre: `Revoir le titre et la première photo de « ${a.titre} »`,
+          regle: `${a.vues.toLocaleString('fr-FR')} vues, au-dessus de la médiane, `
+               + `mais ${a.taux_contact.toFixed(2)} % de contacts contre `
+               + `${tauxMedian.toFixed(2)} % en médiane : l'annonce est vue, elle ne convainc pas.`});
+      }
+      // 3. peu vue : problème de visibilité, pas de contenu
+      if (a.vues < vuesMedianes && a.taux_contact >= tauxMedian) {
+        pistes.push({code, priorite: 3,
+          titre: `Donner plus de visibilité à « ${a.titre} »`,
+          regle: `Seulement ${a.vues.toLocaleString('fr-FR')} vues, sous la médiane, `
+               + `alors que ${a.taux_contact.toFixed(2)} % des visiteurs contactent l'agence : `
+               + `cette annonce convertit bien, il lui manque du trafic.`});
+      }
+      // 4. beaucoup de contacts, peu de réservations : la conversion casse après
+      if (a.demandes_contact >= 100 && a.reservations_declarees <= 1) {
+        pistes.push({code, priorite: 2,
+          titre: `« ${a.titre} » attire beaucoup de monde mais peu de réservations`,
+          regle: `${a.demandes_contact} contacts pour `
+               + `${a.reservations_declarees} réservation(s) : vérifier le délai de réponse, `
+               + `les disponibilités affichées et le prix annoncé.`});
+      }
+    });
+  });
+
+  pistes.sort((a, b) => a.priorite - b.priorite);
+
+  compterPistes(pistes.length);
+  cible.innerHTML = pistes.length ? `
+    <p class="intro">Calculées à partir des chiffres de l'onglet précédent. La règle appliquée est
+       indiquée sous chaque piste, pour pouvoir la discuter.</p>
+    <div class="carte">${pistes.map(p => `
+      <div class="piste-item">
+        <div class="piste-code">${p.code}</div>
+        <div><div class="piste-titre">${p.titre}</div>
+        <div class="piste-regle">${p.regle}</div></div>
+      </div>`).join('')}</div>`
+    : `<p class="intro">Aucune annonce ne se détache en dessous des autres sur ce périmètre.</p>`;
+}
+
+function compterPistes(nombre) {
+  const compteur = document.getElementById('compteur-pistes');
+  if (compteur) compteur.textContent = nombre;
+}
+
+function dessinerAnnonces(v) {
+  let liste = v.annonces
+    .filter(a => etat.canal === 'tous' || a.canal === etat.canal)
+    .filter(a => etat.logement === 'tous' || a.code_logement === etat.logement);
+  dessinerComparatif(liste);
+  dessinerPistes(liste);
+}
+
+function dessinerProvenance(v) {
+  const p = DONNEES.provenance;
+  const perimetre = etat.proprio === 'tous' ? 'toute l\'agence' : etat.proprio;
+  const echecs = p.documents_en_echec
+    ? ` — <strong style="color:var(--grave)">${p.documents_en_echec} document(s) en échec</strong>` : '';
+  const texte = `Rapport généré le <strong>${p.genere_le}</strong> à partir de `
+    + `<strong>${p.documents_lus}</strong> confirmation(s) de réservation et `
+    + `<strong>${p.mouvements}</strong> mouvement(s) bancaire(s)${echecs}.`;
+  document.getElementById('provenance').innerHTML = texte;
+  document.getElementById('pied-impression').innerHTML =
+    `Lagon Locations — périmètre : ${perimetre}. ${texte} `
+    + `Les montants suivis du signe ~ ont été reconstitués par l'outil, faute d'être écrits sur le document.`;
+}
+
+
+/* --- onglet « À traiter » ---
+   Les constats des autres onglets deviennent des actions, triées par montant
+   decroissant a l'interieur de chaque groupe : on traite d'abord ce qui coute
+   le plus cher. Rien n'est calcule ici, tout vient du rapprochement. */
+function dessinerActions(v) {
+  const retenues = v.resaPeriode.filter(r => r.retenu);
+
+  const relancer = retenues.filter(r => r.ecart < -0.01)
+    .sort((a, b) => a.ecart - b.ecart);
+  const rembourser = retenues.filter(r => r.ecart > 0.01)
+    .sort((a, b) => b.ecart - a.ecart);
+  // Certaines anomalies sont déjà devenues une action chiffrée plus haut. On
+  // ne les répète pas ici, sinon le même problème apparaît deux fois et le
+  // compteur d'actions gonfle pour rien.
+  const DEJA_TRAITEES = ['double encaissement'];
+  const aVerifier = r => r.anomalies.filter(a =>
+    a.gravite !== 'information' && !DEJA_TRAITEES.includes(a.type));
+  const verifier = v.resa.filter(r => aVerifier(r).length);
+  const orphelins = etat.proprio === 'tous'
+    ? DONNEES.anomalies_agence.filter(a => a.gravite === 'bloquant') : [];
+
+  const total = relancer.length + rembourser.length + verifier.length + orphelins.length;
+  const compteur = document.getElementById('compteur-actions');
+  compteur.textContent = total;
+  compteur.className = 'compteur' + (total ? '' : ' calme');
+
+  const groupe = (titre, elements) => elements.length
+    ? `<div class="groupe-actions">
+         <div class="groupe-titre">${titre}</div>
+         <div class="carte">${elements.join('')}</div>
+       </div>` : '';
+
+  const html = [
+    groupe('Relancer un paiement', relancer.map(r => `
+      <div class="action">
+        <div><div class="action-titre">Relancer ${r.voyageur}</div>
+          <div class="action-detail">${r.reference} · ${r.logement} · séjour du
+            ${r.arrivee} au ${r.depart} · ${r.statut}
+            ${r.encaisse > 0 ? ` · déjà réglé : ${euro(r.encaisse)}` : ''}</div></div>
+        <div class="action-montant negatif">${euro(Math.abs(r.ecart))}</div>
+      </div>`)),
+
+    groupe('Rembourser un trop-perçu', rembourser.map(r => `
+      <div class="action">
+        <div><div class="action-titre">Rembourser ${r.voyageur}</div>
+          <div class="action-detail">${r.reference} · ${r.logement} ·
+            ${r.nb_mouvements || ''} encaissement(s) pour un dû de ${euro(r.du)}</div></div>
+        <div class="action-montant negatif">${euro(r.ecart)}</div>
+      </div>`)),
+
+    groupe('Vérifier un dossier', verifier.map(r => `
+      <div class="action">
+        <div><div class="action-titre">${r.reference} — ${r.voyageur}</div>
+          <div class="action-detail">${aVerifier(r).map(a => a.detail).join('<br>')}</div></div>
+        <div class="action-montant" style="font-size:13px;color:var(--ink-2)">${r.logement}</div>
+      </div>`)),
+
+    groupe('Identifier un paiement', orphelins.map(a => `
+      <div class="action">
+        <div><div class="action-titre">${a.type}</div>
+          <div class="action-detail">${a.detail}</div></div>
+        <div class="action-montant" style="font-size:13px;color:var(--ink-2)">à rattacher</div>
+      </div>`)),
+  ].join('');
+
+  document.getElementById('actions').innerHTML = html ||
+    '<div class="carte"><div class="vide">Rien à traiter sur ce périmètre.</div></div>';
+}
+
+function afficher() {
+  const v = vue();
+  dessinerProvenance(v);
+  const periode = DONNEES.periodes.find(p => p.cle === etat.periode);
+  document.getElementById('portee').textContent =
+    `${v.resaPeriode.length} séjour(s) — ${periode ? periode.libelle.toLowerCase() : ''}`;
+  dessinerTuiles(v); dessinerBarres(v); dessinerMouvements(v);
+  dessinerTableResa(v); dessinerAnomaliesAgence(); dessinerAnnonces(v);
+  dessinerActions(v);
+}
+
+/* --- mise en place des filtres --- */
+const selProprio = document.getElementById('filtre-proprio');
+const proprietaires = [...new Set(DONNEES.reservations.map(r => r.proprietaire))].sort();
+selProprio.innerHTML = '<option value="tous">Tous (vue agence)</option>' +
+  proprietaires.map(p => `<option value="${p}">${p}</option>`).join('');
+
+const selPeriode = document.getElementById('filtre-periode');
+selPeriode.innerHTML = DONNEES.periodes
+  .map(p => `<option value="${p.cle}">${p.libelle}</option>`).join('');
+selPeriode.value = etat.periode;
+
+const selCanal = document.getElementById('filtre-canal');
+selCanal.innerHTML = '<option value="tous">Tous</option>' +
+  [...new Set(DONNEES.annonces.map(a => a.canal))].sort()
+    .map(c => `<option value="${c}">${c}</option>`).join('');
+
+const selLogement = document.getElementById('filtre-logement');
+selLogement.innerHTML = '<option value="tous">Tous</option>' +
+  [...new Set(DONNEES.annonces.map(a => a.code_logement))].sort()
+    .map(c => `<option value="${c}">${c}</option>`).join('');
+
+const selMoyen = document.getElementById('filtre-moyen');
+selMoyen.innerHTML = '<option value="tous">Tous</option>' +
+  [...new Set(DONNEES.mouvements.map(m => m.moyen))].sort()
+    .map(m => `<option value="${m}">${m}</option>`).join('');
+selMoyen.addEventListener('change', e => { etat.moyen = e.target.value; afficher(); });
+document.getElementById('filtre-sens')
+  .addEventListener('change', e => { etat.sens = e.target.value; afficher(); });
+document.getElementById('filtre-rattachement')
+  .addEventListener('change', e => { etat.rattachement = e.target.value; afficher(); });
+
+document.getElementById('export-rapport').addEventListener('click', exporterRapport);
+document.getElementById('imprimer').addEventListener('click', () => window.print());
+
+document.getElementById('export-mouvements').addEventListener('click', () => {
+  telecharger(nomFichier('mouvements'),
+    ['Date', 'Libellé', 'Moyen', 'Réservation', 'Montant'],
+    derniersMouvements.map(m => [m.date, m.libelle, m.moyen, m.reference || '', m.montant]));
+});
+
+document.getElementById('export-resa').addEventListener('click', () => {
+  telecharger(nomFichier('reservations'),
+    ['Référence', 'Propriétaire', 'Logement', 'Voyageur', 'Canal', 'Arrivée', 'Départ',
+     'Dû', 'Encaissé', 'Écart', 'Statut', 'Compté dans les totaux', 'Anomalies'],
+    derniereSelection.map(r => [r.reference, r.proprietaire, r.logement, r.voyageur, r.canal,
+      r.arrivee, r.depart, r.du, r.encaisse, r.ecart, r.statut, r.retenu ? 'oui' : 'non',
+      r.anomalies.map(a => `${a.gravite} : ${a.type}`).join(' | ')]));
+});
+
+const selStatut = document.getElementById('filtre-statut');
+selStatut.innerHTML = '<option value="tous">Tous</option>' +
+  [...new Set(DONNEES.reservations.map(r => r.statut))].sort()
+    .map(s => `<option value="${s}">${s}</option>`).join('');
+
+const selCanalResa = document.getElementById('filtre-canal-resa');
+selCanalResa.innerHTML = '<option value="tous">Tous</option>' +
+  [...new Set(DONNEES.reservations.map(r => r.canal))].sort()
+    .map(c => `<option value="${c}">${c}</option>`).join('');
+
+document.getElementById('filtre-signalement')
+  .addEventListener('change', e => { etat.signalement = e.target.value; afficher(); });
+selStatut.addEventListener('change', e => { etat.statut = e.target.value; afficher(); });
+selCanalResa.addEventListener('change', e => { etat.canalResa = e.target.value; afficher(); });
+
+selProprio.addEventListener('change', e => { etat.proprio = e.target.value; afficher(); });
+selPeriode.addEventListener('change', e => { etat.periode = e.target.value; afficher(); });
+selCanal.addEventListener('change', e => { etat.canal = e.target.value; afficher(); });
+selLogement.addEventListener('change', e => { etat.logement = e.target.value; afficher(); });
+
+document.querySelectorAll('.onglet').forEach(bouton => {
+  bouton.addEventListener('click', () => {
+    document.querySelectorAll('.onglet').forEach(b => b.setAttribute('aria-selected', b === bouton));
+    document.querySelectorAll('.panneau').forEach(p => {
+      p.hidden = p.id !== 'p-' + bouton.dataset.onglet;
+    });
+  });
+});
+
+document.querySelectorAll('.sous-onglet').forEach(bouton => {
+  bouton.addEventListener('click', () => {
+    document.querySelectorAll('.sous-onglet').forEach(b => b.setAttribute('aria-selected', b === bouton));
+    document.querySelectorAll('.sous-panneau').forEach(p => {
+      p.hidden = p.id !== 'sp-' + bouton.dataset.sous;
+    });
+  });
+});
+
+afficher();
+</script>
+</body>
+</html>
